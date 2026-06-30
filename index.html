@@ -40,11 +40,35 @@ const {
 const SUPABASE_URL = "https://tboihgqcnqlatzyhtlpu.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRib2loZ3FjbnFsYXR6eWh0bHB1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzMzg0NzgsImV4cCI6MjA5NzkxNDQ3OH0.vGE6r3An_KDOJfk1U88PTN1MrXYwTDMk3oJghWmY84A";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const DAY_OPTIONS = ["Mon #1", "Mon #2", "Mon #3", "Mon #4", "Tues #1", "Tues #2", "Tues #3", "Tues #4", "Wed #1", "Wed #2", "Wed #3", "Wed #4", "Thurs #1", "Thurs #2", "Thurs #3", "Thurs #4", "Fri #1", "Fri #2", "Fri #3", "Fri #4"];
-const SESSION_ORDER = ["Mon #1", "Mon #2", "Mon #3", "Mon #4", "Tues", "Tues #1", "Tues #2", "Tues #3", "Tues #4", "Wed #1", "Wed #2", "Wed #3", "Wed #4", "Thurs #1", "Thurs #2", "Thurs #3", "Thurs #4", "Fri #1", "Fri #2", "Fri #3", "Fri #4"];
+const DAYS = ["Mon", "Tues", "Wed", "Thurs", "Fri"];
+const DAY_ORDER = {
+  Mon: 0,
+  Tues: 1,
+  Wed: 2,
+  Thurs: 3,
+  Fri: 4
+};
 function sessionIndex(s) {
-  const i = SESSION_ORDER.indexOf(s);
-  return i >= 0 ? i : SESSION_ORDER.length;
+  if (!s) return 99999;
+  const m = String(s).match(/^([A-Za-z]+)\s*#?\s*(\d+)?/);
+  if (!m) return 99999;
+  const d = DAY_ORDER[m[1]] != null ? DAY_ORDER[m[1]] : 9;
+  const n = m[2] ? parseInt(m[2]) : 0;
+  return d * 100 + n;
+}
+function nextAttemptNumber(attempts, day) {
+  let max = 0;
+  attempts.forEach(a => {
+    const m = a.session && String(a.session).match(/^([A-Za-z]+)\s*#\s*(\d+)$/);
+    if (m && m[1] === day) max = Math.max(max, parseInt(m[2]));
+  });
+  return max + 1;
+}
+function defaultDay(attempts) {
+  if (!attempts.length) return "Mon";
+  const latest = attempts.reduce((b, a) => sessionIndex(a.session) > sessionIndex(b.session) ? a : b, attempts[0]);
+  const m = String(latest.session).match(/^([A-Za-z]+)/);
+  return m && DAY_ORDER[m[1]] != null ? m[1] : "Mon";
 }
 const STUDENT_COLORS = {
   "Benji M.": "#3b82f6",
@@ -618,18 +642,23 @@ function EntryModal({
   onClose,
   busy
 }) {
-  const [day, setDay] = useState(DAY_OPTIONS[4]);
+  const [day, setDay] = useState(() => defaultDay(student.attempts));
+  const [num, setNum] = useState(() => nextAttemptNumber(student.attempts, defaultDay(student.attempts)));
   const [mins, setMins] = useState(prefill?.mins != null ? String(prefill.mins) : "");
   const [secs, setSecs] = useState(prefill?.secs != null ? String(prefill.secs) : "");
   const [rubric, setRubric] = useState(emptyRubric());
   const [isPB, setIsPB] = useState(false);
   const total = rubricScore(rubric);
   const perfect = total === MAX_SCORE;
+  const sessionLabel = `${day} #${num}`;
+  useEffect(() => {
+    setNum(nextAttemptNumber(student.attempts, day));
+  }, [day]);
   const handle = () => {
     const totalSecs = (parseInt(mins) || 0) * 60 + (parseInt(secs) || 0);
     if (!totalSecs) return;
     onSave({
-      session: day,
+      session: sessionLabel,
       time: totalSecs,
       score: total,
       rubric,
@@ -692,20 +721,58 @@ function EntryModal({
       textTransform: "uppercase",
       marginBottom: 6
     }
-  }, "Day / Attempt"), React.createElement("select", {
+  }, "Day / Attempt"), React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      alignItems: "center"
+    }
+  }, React.createElement("select", {
     value: day,
     onChange: e => setDay(e.target.value),
     style: {
       ...inp,
-      appearance: "none"
+      appearance: "none",
+      flex: 1
     }
-  }, DAY_OPTIONS.map(d => React.createElement("option", {
+  }, DAYS.map(d => React.createElement("option", {
     key: d,
     value: d,
     style: {
       background: "#0d1b2a"
     }
-  }, d)))), React.createElement("div", {
+  }, d))), React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 4
+    }
+  }, React.createElement("span", {
+    style: {
+      color: "rgba(255,255,255,0.5)",
+      fontWeight: 700
+    }
+  }, "#"), React.createElement("input", {
+    type: "number",
+    min: "1",
+    value: num,
+    onChange: e => setNum(Math.max(1, parseInt(e.target.value) || 1)),
+    style: {
+      ...inp,
+      width: 60,
+      textAlign: "center"
+    }
+  }))), React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "rgba(255,255,255,0.45)",
+      marginTop: 6
+    }
+  }, "Logs as ", React.createElement("strong", {
+    style: {
+      color: "#ffd700"
+    }
+  }, sessionLabel), " — auto-numbered to your next attempt (adjust # if needed).")), React.createElement("div", {
     style: {
       marginBottom: 16
     }
@@ -1666,22 +1733,15 @@ function DataManager({
         style: {
           padding: "6px 8px"
         }
-      }, isE("session") ? React.createElement("select", {
+      }, isE("session") ? React.createElement("input", {
         autoFocus: true,
         value: editVal,
         onChange: e => setEditVal(e.target.value),
         onBlur: commitEdit,
-        style: {
-          ...inp,
-          appearance: "none"
-        }
-      }, DAY_OPTIONS.map(d => React.createElement("option", {
-        key: d,
-        value: d,
-        style: {
-          background: "#0d1b2a"
-        }
-      }, d))) : React.createElement("div", {
+        onKeyDown: e => e.key === "Enter" && commitEdit(),
+        placeholder: "e.g. Tues #3",
+        style: inp
+      }) : React.createElement("div", {
         onClick: () => startEdit(a, "session", a.session),
         style: {
           ...cellStyle(),
