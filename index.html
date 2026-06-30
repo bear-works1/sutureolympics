@@ -1,0 +1,2098 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Suture Olympics — Live Leaderboard</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🏆</text></svg>" />
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background-color: #0b5429;
+    background-image:
+      radial-gradient(ellipse at 50% -6%, rgba(255,255,255,0.20), rgba(255,255,255,0) 55%),
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.045) 0 72px, rgba(0,0,0,0.05) 72px 144px),
+      linear-gradient(180deg, #0e6a33 0%, #0a4d25 100%);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 10px; }
+  .student-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  @media (max-width: 880px) { .student-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .student-grid { grid-template-columns: 1fr; } }
+  input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type=number] { -moz-appearance: textfield; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const {
+  useState,
+  useEffect,
+  useCallback,
+  useRef
+} = React;
+const SUPABASE_URL = "https://tboihgqcnqlatzyhtlpu.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRib2loZ3FjbnFsYXR6eWh0bHB1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzMzg0NzgsImV4cCI6MjA5NzkxNDQ3OH0.vGE6r3An_KDOJfk1U88PTN1MrXYwTDMk3oJghWmY84A";
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const DAY_OPTIONS = ["Mon #1", "Mon #2", "Mon #3", "Mon #4", "Tues #1", "Tues #2", "Tues #3", "Tues #4", "Wed #1", "Wed #2", "Wed #3", "Wed #4", "Thurs #1", "Thurs #2", "Thurs #3", "Thurs #4", "Fri #1", "Fri #2", "Fri #3", "Fri #4"];
+const SESSION_ORDER = ["Mon #1", "Mon #2", "Mon #3", "Mon #4", "Tues", "Tues #1", "Tues #2", "Tues #3", "Tues #4", "Wed #1", "Wed #2", "Wed #3", "Wed #4", "Thurs #1", "Thurs #2", "Thurs #3", "Thurs #4", "Fri #1", "Fri #2", "Fri #3", "Fri #4"];
+function sessionIndex(s) {
+  const i = SESSION_ORDER.indexOf(s);
+  return i >= 0 ? i : SESSION_ORDER.length;
+}
+const STUDENT_COLORS = {
+  "Benji M.": "#3b82f6",
+  "Bennett L.": "#ef4444",
+  "Cooper B.": "#22c55e",
+  "Hudson L.": "#f59e0b",
+  "Charlie M.": "#a855f7",
+  "Liam S.": "#fb7185",
+  "Miyu X.": "#06b6d4",
+  "Roan B.": "#84cc16",
+  "Remy L.V.": "#ec4899"
+};
+const FALLBACK_COLORS = ["#3b82f6", "#ef4444", "#22c55e", "#f59e0b", "#a855f7", "#fb7185", "#06b6d4", "#84cc16", "#ec4899"];
+function colorFor(name, idx) {
+  return STUDENT_COLORS[name] || FALLBACK_COLORS[idx % FALLBACK_COLORS.length];
+}
+const FLAG_COUNTRY = {
+  "🇮🇹": "Italy",
+  "🇫🇷": "France",
+  "🇦🇷": "Argentina",
+  "🇯🇵": "Japan",
+  "🇵🇹": "Portugal"
+};
+const CATEGORIES = [{
+  key: "tripod",
+  label: "Tripod grip maintained",
+  short: "Grip"
+}, {
+  key: "knot1",
+  label: "Knot #1 pull test",
+  short: "Knot 1"
+}, {
+  key: "knot2",
+  label: "Knot #2 pull test",
+  short: "Knot 2"
+}, {
+  key: "knot3",
+  label: "Knot #3 pull test",
+  short: "Knot 3"
+}, {
+  key: "spacing",
+  label: "Consistent spacing",
+  short: "Spacing"
+}, {
+  key: "sharps",
+  label: "Sharps safety",
+  short: "Sharps"
+}];
+const MAX_SCORE = CATEGORIES.length * 2;
+const RATING_LABELS = ["No", "Sometimes", "Yes"];
+const RATING_COLORS = ["#ef4444", "#facc15", "#22c55e"];
+function emptyRubric() {
+  const r = {};
+  CATEGORIES.forEach(c => {
+    r[c.key] = 0;
+  });
+  return r;
+}
+function rubricScore(rubric) {
+  if (!rubric) return 0;
+  return CATEGORIES.reduce((s, c) => s + (Number(rubric[c.key]) || 0), 0);
+}
+function cycleRubric(rubric, key) {
+  const base = rubric || emptyRubric();
+  return {
+    ...base,
+    [key]: ((Number(base[key]) || 0) + 1) % 3
+  };
+}
+function fmtTime(secs) {
+  if (secs == null || !isFinite(secs)) return "—";
+  const m = Math.floor(secs / 60),
+    s = Math.round(secs % 60);
+  return s === 0 ? `${m}m` : `${m}m ${String(s).padStart(2, "0")}s`;
+}
+function fmtClock(ms) {
+  const total = Math.floor(ms / 100);
+  const tenths = total % 10;
+  const s = Math.floor(total / 10) % 60;
+  const m = Math.floor(total / 600);
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${tenths}`;
+}
+function getBest(attempts) {
+  if (!attempts.length) return null;
+  return Math.min(...attempts.map(a => a.time));
+}
+function getTopScore(attempts) {
+  const sc = attempts.filter(a => a.score !== null && a.score !== undefined);
+  return sc.length ? Math.max(...sc.map(a => a.score)) : null;
+}
+function getPerfectCount(attempts) {
+  return attempts.filter(a => a.score === MAX_SCORE).length;
+}
+function RubricStrip({
+  rubric,
+  onCycle,
+  compact
+}) {
+  const r = rubric || emptyRubric();
+  const total = rubricScore(r);
+  const perfect = total === MAX_SCORE;
+  return React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      gap: 3
+    }
+  }, React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 3,
+      flexWrap: "wrap",
+      justifyContent: "center"
+    }
+  }, CATEGORIES.map(c => {
+    const v = Number(r[c.key]) || 0;
+    return React.createElement("span", {
+      key: c.key,
+      onClick: onCycle ? () => onCycle(c.key) : undefined,
+      title: `${c.label}: ${RATING_LABELS[v]} (${v})${onCycle ? " — click to change" : ""}`,
+      style: {
+        cursor: onCycle ? "pointer" : "default",
+        fontSize: compact ? 8 : 9,
+        fontWeight: 700,
+        padding: compact ? "2px 4px" : "3px 5px",
+        borderRadius: 5,
+        background: RATING_COLORS[v],
+        color: "#0a0f1e",
+        userSelect: "none"
+      }
+    }, c.short);
+  })), React.createElement("span", {
+    style: {
+      fontSize: 11,
+      fontWeight: 800,
+      color: perfect ? "#22c55e" : "rgba(255,255,255,0.85)"
+    }
+  }, total, "/", MAX_SCORE, perfect ? " 🏆" : ""));
+}
+function Bunting() {
+  const cols = ["#ffffff", "#ffd700", "#ef4444", "#22c55e", "#3b82f6", "#06b6d4", "#a855f7", "#fb7185"];
+  const flags = Array.from({
+    length: 30
+  }, (_, i) => cols[i % cols.length]);
+  return React.createElement("div", {
+    style: {
+      display: "flex",
+      width: "100%",
+      overflow: "hidden",
+      height: 22,
+      marginBottom: -1
+    }
+  }, flags.map((c, i) => React.createElement("div", {
+    key: i,
+    style: {
+      flex: 1,
+      height: 22,
+      background: c,
+      clipPath: "polygon(0 0,100% 0,50% 100%)",
+      opacity: 0.92
+    }
+  })));
+}
+function PitchOverlay() {
+  return React.createElement("svg", {
+    style: {
+      position: "fixed",
+      inset: 0,
+      width: "100%",
+      height: "100%",
+      pointerEvents: "none",
+      zIndex: 0,
+      opacity: 0.13
+    },
+    preserveAspectRatio: "none",
+    viewBox: "0 0 100 100"
+  }, React.createElement("rect", {
+    x: "3",
+    y: "3",
+    width: "94",
+    height: "94",
+    fill: "none",
+    stroke: "#fff",
+    strokeWidth: "0.4"
+  }), React.createElement("line", {
+    x1: "3",
+    y1: "50",
+    x2: "97",
+    y2: "50",
+    stroke: "#fff",
+    strokeWidth: "0.4"
+  }), React.createElement("circle", {
+    cx: "50",
+    cy: "50",
+    r: "11",
+    fill: "none",
+    stroke: "#fff",
+    strokeWidth: "0.4"
+  }), React.createElement("circle", {
+    cx: "50",
+    cy: "50",
+    r: "0.8",
+    fill: "#fff"
+  }), React.createElement("rect", {
+    x: "32",
+    y: "3",
+    width: "36",
+    height: "13",
+    fill: "none",
+    stroke: "#fff",
+    strokeWidth: "0.4"
+  }), React.createElement("rect", {
+    x: "32",
+    y: "84",
+    width: "36",
+    height: "13",
+    fill: "none",
+    stroke: "#fff",
+    strokeWidth: "0.4"
+  }));
+}
+function Dashboard({
+  students,
+  colorMap
+}) {
+  const withAttempts = students.filter(s => s.attempts.length > 0);
+  const totalAttempts = students.reduce((n, s) => n + s.attempts.length, 0);
+  const totalPBs = students.reduce((n, s) => n + s.attempts.filter(a => a.isPB).length, 0);
+  const perfectRounds = students.reduce((n, s) => n + getPerfectCount(s.attempts), 0);
+  let record = null,
+    recordHolder = null,
+    hiScore = null,
+    hiHolder = null;
+  withAttempts.forEach(s => {
+    const b = getBest(s.attempts);
+    if (b !== null && (record === null || b < record)) {
+      record = b;
+      recordHolder = s;
+    }
+    const t = getTopScore(s.attempts);
+    if (t !== null && (hiScore === null || t > hiScore)) {
+      hiScore = t;
+      hiHolder = s;
+    }
+  });
+  const standings = [...students].sort((a, b) => {
+    const ba = getBest(a.attempts),
+      bb = getBest(b.attempts);
+    if (ba === null && bb === null) return 0;
+    if (ba === null) return 1;
+    if (bb === null) return -1;
+    return ba - bb;
+  });
+  const MEDAL = ["#ffd700", "#c0c0c0", "#cd7f32"];
+  const tiles = [{
+    icon: "⚽",
+    label: "Attempts logged",
+    value: totalAttempts,
+    c: "#fff"
+  }, {
+    icon: "⚡",
+    label: "Fastest time",
+    value: record !== null ? fmtTime(record) : "—",
+    sub: recordHolder ? `${recordHolder.flag} ${recordHolder.name}` : "",
+    c: "#22c55e"
+  }, {
+    icon: "🎯",
+    label: "Top score",
+    value: hiScore !== null ? `${hiScore}/${MAX_SCORE}` : "—",
+    sub: hiHolder ? `${hiHolder.flag} ${hiHolder.name}` : "",
+    c: "#ffd700"
+  }, {
+    icon: "🏆",
+    label: "Perfect rounds",
+    value: perfectRounds,
+    c: "#22c55e"
+  }, {
+    icon: "⭐",
+    label: "Personal bests",
+    value: totalPBs,
+    c: "#ffd700"
+  }];
+  return React.createElement("div", {
+    style: {
+      marginBottom: 22
+    }
+  }, React.createElement("div", {
+    className: "stat-grid",
+    style: {
+      marginBottom: 14
+    }
+  }, tiles.map(t => React.createElement("div", {
+    key: t.label,
+    style: {
+      background: "rgba(7,24,16,0.72)",
+      border: "1px solid rgba(255,215,0,0.25)",
+      borderRadius: 14,
+      padding: "14px 12px",
+      textAlign: "center",
+      backdropFilter: "blur(2px)"
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: 18,
+      marginBottom: 2
+    }
+  }, t.icon), React.createElement("div", {
+    style: {
+      fontSize: 20,
+      fontWeight: 900,
+      color: t.c,
+      lineHeight: 1.1
+    }
+  }, t.value), t.sub && React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: "rgba(255,255,255,0.55)",
+      marginTop: 2
+    }
+  }, t.sub), React.createElement("div", {
+    style: {
+      fontSize: 9,
+      letterSpacing: 1,
+      textTransform: "uppercase",
+      color: "rgba(255,255,255,0.4)",
+      marginTop: 4
+    }
+  }, t.label)))), React.createElement("div", {
+    style: {
+      background: "rgba(7,24,16,0.72)",
+      border: "1px solid rgba(255,215,0,0.25)",
+      borderRadius: 14,
+      overflow: "hidden"
+    }
+  }, React.createElement("div", {
+    style: {
+      padding: "10px 16px",
+      borderBottom: "1px solid rgba(255,255,255,0.08)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between"
+    }
+  }, React.createElement("span", {
+    style: {
+      fontSize: 12,
+      fontWeight: 800,
+      letterSpacing: 1,
+      textTransform: "uppercase",
+      color: "#ffd700"
+    }
+  }, "🏟️ Group Standings"), React.createElement("span", {
+    style: {
+      fontSize: 10,
+      color: "rgba(255,255,255,0.4)"
+    }
+  }, "ranked by best time · live")), React.createElement("div", {
+    style: {
+      overflowX: "auto"
+    }
+  }, React.createElement("table", {
+    style: {
+      width: "100%",
+      borderCollapse: "collapse",
+      minWidth: 460
+    }
+  }, React.createElement("thead", null, React.createElement("tr", {
+    style: {
+      borderBottom: "1px solid rgba(255,255,255,0.08)"
+    }
+  }, ["#", "Team", "Pld", "Best", "Top", "PB", "🏆"].map((h, i) => React.createElement("th", {
+    key: h,
+    style: {
+      padding: "7px 10px",
+      fontSize: 9,
+      fontWeight: 700,
+      letterSpacing: 1,
+      textTransform: "uppercase",
+      color: "rgba(255,255,255,0.4)",
+      textAlign: i < 2 ? "left" : "center",
+      whiteSpace: "nowrap"
+    }
+  }, h)))), React.createElement("tbody", null, standings.map((s, i) => {
+    const color = colorMap[s.name];
+    const hasAtt = s.attempts.length > 0;
+    return React.createElement("tr", {
+      key: s.name,
+      style: {
+        borderBottom: "1px solid rgba(255,255,255,0.05)"
+      }
+    }, React.createElement("td", {
+      style: {
+        padding: "7px 10px"
+      }
+    }, React.createElement("span", {
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 20,
+        height: 20,
+        borderRadius: "50%",
+        fontSize: 11,
+        fontWeight: 900,
+        background: hasAtt ? MEDAL[i] || "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.06)",
+        color: hasAtt && i < 3 ? "#0a0f1e" : "rgba(255,255,255,0.5)"
+      }
+    }, i + 1)), React.createElement("td", {
+      style: {
+        padding: "7px 10px",
+        fontSize: 13,
+        fontWeight: 700,
+        color,
+        whiteSpace: "nowrap"
+      }
+    }, s.flag, " ", s.name), React.createElement("td", {
+      style: {
+        padding: "7px 10px",
+        textAlign: "center",
+        fontSize: 12,
+        color: "rgba(255,255,255,0.7)"
+      }
+    }, s.attempts.length), React.createElement("td", {
+      style: {
+        padding: "7px 10px",
+        textAlign: "center",
+        fontSize: 12,
+        fontWeight: 700,
+        color: "#fff"
+      }
+    }, fmtTime(getBest(s.attempts))), React.createElement("td", {
+      style: {
+        padding: "7px 10px",
+        textAlign: "center",
+        fontSize: 12,
+        color: "#fff"
+      }
+    }, getTopScore(s.attempts) !== null ? `${getTopScore(s.attempts)}/${MAX_SCORE}` : "—"), React.createElement("td", {
+      style: {
+        padding: "7px 10px",
+        textAlign: "center",
+        fontSize: 12,
+        color: "#ffd700"
+      }
+    }, s.attempts.filter(a => a.isPB).length), React.createElement("td", {
+      style: {
+        padding: "7px 10px",
+        textAlign: "center",
+        fontSize: 12,
+        color: "#22c55e"
+      }
+    }, getPerfectCount(s.attempts) || ""));
+  }))))));
+}
+function TimerSection({
+  students,
+  onLog
+}) {
+  const [elapsed, setElapsed] = useState(0);
+  const [running, setRunning] = useState(false);
+  const [who, setWho] = useState(students[0]?.name || "");
+  const startRef = useRef(0);
+  const rafRef = useRef(null);
+  useEffect(() => {
+    if (students.length && !students.find(s => s.name === who)) setWho(students[0].name);
+  }, [students, who]);
+  useEffect(() => {
+    if (!running) return;
+    startRef.current = Date.now() - elapsed;
+    const tick = () => {
+      setElapsed(Date.now() - startRef.current);
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [running]);
+  const secs = Math.round(elapsed / 1000);
+  const btn = (bg, color) => ({
+    padding: "9px 16px",
+    borderRadius: 9,
+    border: "none",
+    cursor: "pointer",
+    fontWeight: 800,
+    fontSize: 13,
+    background: bg,
+    color
+  });
+  return React.createElement("div", {
+    style: {
+      background: "rgba(7,24,16,0.72)",
+      border: "1px solid rgba(255,215,0,0.3)",
+      borderRadius: 16,
+      padding: "16px 18px",
+      marginBottom: 22,
+      display: "flex",
+      flexWrap: "wrap",
+      alignItems: "center",
+      gap: 16,
+      justifyContent: "center"
+    }
+  }, React.createElement("div", {
+    style: {
+      textAlign: "center"
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: 10,
+      letterSpacing: 2,
+      textTransform: "uppercase",
+      color: "#ffd700",
+      marginBottom: 2
+    }
+  }, "⏱️ Match Clock"), React.createElement("div", {
+    style: {
+      fontSize: 44,
+      fontWeight: 900,
+      fontFamily: "'Courier New',monospace",
+      color: "#fff",
+      lineHeight: 1,
+      letterSpacing: 1
+    }
+  }, fmtClock(elapsed))), React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap",
+      alignItems: "center",
+      justifyContent: "center"
+    }
+  }, !running ? React.createElement("button", {
+    onClick: () => setRunning(true),
+    style: btn("#22c55e", "#04210f")
+  }, elapsed ? "Resume" : "Start") : React.createElement("button", {
+    onClick: () => setRunning(false),
+    style: btn("#facc15", "#231a00")
+  }, "Pause"), React.createElement("button", {
+    onClick: () => {
+      setRunning(false);
+      setElapsed(0);
+    },
+    style: btn("rgba(255,255,255,0.12)", "#fff")
+  }, "Reset"), React.createElement("select", {
+    value: who,
+    onChange: e => setWho(e.target.value),
+    style: {
+      padding: "9px 10px",
+      borderRadius: 9,
+      border: "1px solid rgba(255,255,255,0.2)",
+      background: "#0d1b2a",
+      color: "#fff",
+      fontSize: 13
+    }
+  }, students.map(s => React.createElement("option", {
+    key: s.name,
+    value: s.name
+  }, s.flag, " ", s.name))), React.createElement("button", {
+    onClick: () => {
+      if (secs > 0 && who) {
+        setRunning(false);
+        onLog(who, secs);
+      }
+    },
+    disabled: !secs || !who,
+    style: btn(secs && who ? "#3b82f6" : "rgba(59,130,246,0.4)", "#04183a")
+  }, "Log attempt →")));
+}
+function EntryModal({
+  student,
+  prefill,
+  onSave,
+  onClose,
+  busy
+}) {
+  const [day, setDay] = useState(DAY_OPTIONS[4]);
+  const [mins, setMins] = useState(prefill?.mins != null ? String(prefill.mins) : "");
+  const [secs, setSecs] = useState(prefill?.secs != null ? String(prefill.secs) : "");
+  const [rubric, setRubric] = useState(emptyRubric());
+  const [isPB, setIsPB] = useState(false);
+  const total = rubricScore(rubric);
+  const perfect = total === MAX_SCORE;
+  const handle = () => {
+    const totalSecs = (parseInt(mins) || 0) * 60 + (parseInt(secs) || 0);
+    if (!totalSecs) return;
+    onSave({
+      session: day,
+      time: totalSecs,
+      score: total,
+      rubric,
+      isPB
+    });
+  };
+  const inp = {
+    background: "rgba(255,255,255,0.1)",
+    border: "1px solid rgba(0,229,255,0.35)",
+    borderRadius: 8,
+    padding: "8px 12px",
+    color: "#fff",
+    fontSize: 15,
+    outline: "none",
+    width: "100%",
+    boxSizing: "border-box"
+  };
+  return React.createElement("div", {
+    style: {
+      position: "fixed",
+      inset: 0,
+      background: "rgba(0,0,0,0.8)",
+      zIndex: 200,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 16
+    },
+    onClick: e => {
+      if (e.target === e.currentTarget) onClose();
+    }
+  }, React.createElement("div", {
+    style: {
+      background: "#0d1b2a",
+      border: "1px solid rgba(255,215,0,0.35)",
+      borderRadius: 18,
+      padding: "26px 26px 20px",
+      width: 340,
+      maxWidth: "100%",
+      maxHeight: "90vh",
+      overflowY: "auto",
+      boxShadow: "0 20px 60px rgba(0,0,0,0.6)"
+    }
+  }, React.createElement("div", {
+    style: {
+      fontWeight: 800,
+      fontSize: 16,
+      marginBottom: 18,
+      color: "#fff"
+    }
+  }, student.flag, " Add Attempt — ", student.name), React.createElement("div", {
+    style: {
+      marginBottom: 14
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "rgba(255,255,255,0.4)",
+      letterSpacing: 1,
+      textTransform: "uppercase",
+      marginBottom: 6
+    }
+  }, "Day / Attempt"), React.createElement("select", {
+    value: day,
+    onChange: e => setDay(e.target.value),
+    style: {
+      ...inp,
+      appearance: "none"
+    }
+  }, DAY_OPTIONS.map(d => React.createElement("option", {
+    key: d,
+    value: d,
+    style: {
+      background: "#0d1b2a"
+    }
+  }, d)))), React.createElement("div", {
+    style: {
+      marginBottom: 16
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "rgba(255,255,255,0.4)",
+      letterSpacing: 1,
+      textTransform: "uppercase",
+      marginBottom: 6
+    }
+  }, "Time"), React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      alignItems: "center"
+    }
+  }, React.createElement("input", {
+    type: "number",
+    min: "0",
+    placeholder: "mins",
+    value: mins,
+    onChange: e => setMins(e.target.value),
+    style: inp
+  }), React.createElement("div", {
+    style: {
+      color: "rgba(255,255,255,0.4)",
+      fontWeight: 700
+    }
+  }, ":"), React.createElement("input", {
+    type: "number",
+    min: "0",
+    max: "59",
+    placeholder: "secs",
+    value: secs,
+    onChange: e => setSecs(e.target.value),
+    style: inp
+  }))), React.createElement("div", {
+    style: {
+      marginBottom: 16
+    }
+  }, React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "baseline",
+      marginBottom: 8
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "rgba(255,255,255,0.4)",
+      letterSpacing: 1,
+      textTransform: "uppercase"
+    }
+  }, "Scoring Rubric"), React.createElement("div", {
+    style: {
+      fontSize: 13,
+      fontWeight: 800,
+      color: perfect ? "#22c55e" : "#fff"
+    }
+  }, total, "/", MAX_SCORE)), CATEGORIES.map(c => React.createElement("div", {
+    key: c.key,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8,
+      marginBottom: 7
+    }
+  }, React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: "rgba(255,255,255,0.75)",
+      flex: 1
+    }
+  }, c.label), React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 4
+    }
+  }, [0, 1, 2].map(v => {
+    const active = rubric[c.key] === v;
+    return React.createElement("button", {
+      key: v,
+      type: "button",
+      onClick: () => setRubric(r => ({
+        ...r,
+        [c.key]: v
+      })),
+      title: `${RATING_LABELS[v]} (${v} pt${v === 1 ? "" : "s"})`,
+      style: {
+        padding: "4px 8px",
+        borderRadius: 6,
+        cursor: "pointer",
+        fontSize: 11,
+        fontWeight: 700,
+        border: `1px solid ${active ? RATING_COLORS[v] : "rgba(255,255,255,0.15)"}`,
+        background: active ? RATING_COLORS[v] : "rgba(255,255,255,0.05)",
+        color: active ? "#0a0f1e" : "rgba(255,255,255,0.5)",
+        minWidth: 34
+      }
+    }, RATING_LABELS[v]);
+  })))), perfect && React.createElement("div", {
+    style: {
+      marginTop: 10,
+      padding: "7px 12px",
+      borderRadius: 8,
+      background: "rgba(34,197,94,0.14)",
+      border: "1px solid rgba(34,197,94,0.4)",
+      color: "#22c55e",
+      fontSize: 12,
+      fontWeight: 700,
+      textAlign: "center"
+    }
+  }, "🏆 All criteria met — perfect ", MAX_SCORE, "/", MAX_SCORE, "!")), React.createElement("div", {
+    style: {
+      marginBottom: 20,
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      cursor: "pointer"
+    },
+    onClick: () => setIsPB(p => !p)
+  }, React.createElement("div", {
+    style: {
+      width: 20,
+      height: 20,
+      borderRadius: 5,
+      border: "2px solid #ffd700",
+      background: isPB ? "#ffd700" : "transparent",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center"
+    }
+  }, isPB && React.createElement("span", {
+    style: {
+      fontSize: 13,
+      color: "#0a0f1e",
+      fontWeight: 900
+    }
+  }, "✓")), React.createElement("span", {
+    style: {
+      fontSize: 13,
+      color: "#ffd700",
+      fontWeight: 600
+    }
+  }, "⭐ Mark as Personal Best")), React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 10
+    }
+  }, React.createElement("button", {
+    onClick: onClose,
+    disabled: busy,
+    style: {
+      flex: 1,
+      padding: "10px",
+      borderRadius: 9,
+      border: "1px solid rgba(255,255,255,0.15)",
+      background: "transparent",
+      color: "rgba(255,255,255,0.5)",
+      cursor: "pointer",
+      fontWeight: 600
+    }
+  }, "Cancel"), React.createElement("button", {
+    onClick: handle,
+    disabled: busy,
+    style: {
+      flex: 2,
+      padding: "10px",
+      borderRadius: 9,
+      border: "none",
+      background: busy ? "rgba(34,197,94,0.4)" : "#22c55e",
+      color: "#04210f",
+      cursor: "pointer",
+      fontWeight: 800,
+      fontSize: 14
+    }
+  }, busy ? "Saving…" : "Save Attempt"))));
+}
+function GoalPanel({
+  student,
+  color,
+  best,
+  topScore,
+  onSave
+}) {
+  const propTimeM = student.goalTime != null ? Math.floor(student.goalTime / 60) : "";
+  const propTimeS = student.goalTime != null ? student.goalTime % 60 : "";
+  const propScore = student.goalScore != null ? student.goalScore : "";
+  const [mins, setMins] = useState(propTimeM);
+  const [secs, setSecs] = useState(propTimeS);
+  const [score, setScore] = useState(propScore);
+  const [focused, setFocused] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  useEffect(() => {
+    if (!focused) {
+      setMins(propTimeM);
+      setSecs(propTimeS);
+      setScore(propScore);
+      setDirty(false);
+    }
+  }, [student.goalTime, student.goalScore, focused]);
+  const goalTime = mins !== "" || secs !== "" ? (parseInt(mins) || 0) * 60 + (parseInt(secs) || 0) : null;
+  const goalScore = score !== "" ? Number(score) : null;
+  const timeMet = best != null && goalTime != null && best <= goalTime;
+  const scoreMet = topScore != null && goalScore != null && topScore >= goalScore;
+  const timeMsg = goalTime == null ? "set a target" : best == null ? "no attempts yet" : timeMet ? `✓ beat by ${fmtTime(goalTime - best)}` : `${fmtTime(best - goalTime)} to go`;
+  const scoreMsg = goalScore == null ? "set a target" : topScore == null ? "no score yet" : scoreMet ? "✓ achieved" : `${goalScore - topScore} pt${goalScore - topScore === 1 ? "" : "s"} to go`;
+  const gi = {
+    background: "rgba(255,255,255,0.1)",
+    border: `1px solid ${color}66`,
+    borderRadius: 6,
+    padding: "5px 6px",
+    color: "#fff",
+    fontSize: 13,
+    outline: "none",
+    width: 42,
+    textAlign: "center",
+    boxSizing: "border-box"
+  };
+  const onFocus = () => setFocused(true);
+  const onBlur = () => setFocused(false);
+  const save = () => {
+    onSave({
+      timeSecs: goalTime,
+      score: goalScore
+    });
+    setDirty(false);
+    setFocused(false);
+  };
+  return React.createElement("div", {
+    style: {
+      background: "rgba(0,0,0,0.28)",
+      borderRadius: 10,
+      padding: "10px 12px",
+      marginBottom: 10
+    }
+  }, React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 8
+    }
+  }, React.createElement("span", {
+    style: {
+      fontSize: 10,
+      letterSpacing: 1,
+      textTransform: "uppercase",
+      color: "#ffd700",
+      fontWeight: 700
+    }
+  }, "🎯 My Goals"), dirty && React.createElement("button", {
+    onClick: save,
+    style: {
+      padding: "2px 10px",
+      borderRadius: 6,
+      border: "none",
+      background: color,
+      color: "#04210f",
+      fontWeight: 800,
+      fontSize: 11,
+      cursor: "pointer"
+    }
+  }, "Save")), React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      marginBottom: 7
+    }
+  }, React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "rgba(255,255,255,0.5)",
+      width: 38
+    }
+  }, "Time"), React.createElement("input", {
+    type: "number",
+    min: "0",
+    placeholder: "m",
+    value: mins,
+    onFocus: onFocus,
+    onBlur: onBlur,
+    onChange: e => {
+      setMins(e.target.value);
+      setDirty(true);
+    },
+    style: gi
+  }), React.createElement("span", {
+    style: {
+      color: "rgba(255,255,255,0.4)",
+      fontWeight: 700
+    }
+  }, ":"), React.createElement("input", {
+    type: "number",
+    min: "0",
+    max: "59",
+    placeholder: "s",
+    value: secs,
+    onFocus: onFocus,
+    onBlur: onBlur,
+    onChange: e => {
+      setSecs(e.target.value);
+      setDirty(true);
+    },
+    style: gi
+  }), React.createElement("span", {
+    style: {
+      marginLeft: "auto",
+      fontSize: 11,
+      fontWeight: 700,
+      color: timeMet ? "#22c55e" : "rgba(255,255,255,0.55)"
+    }
+  }, timeMsg)), React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6
+    }
+  }, React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "rgba(255,255,255,0.5)",
+      width: 38
+    }
+  }, "Score"), React.createElement("input", {
+    type: "number",
+    min: "0",
+    max: MAX_SCORE,
+    placeholder: "#",
+    value: score,
+    onFocus: onFocus,
+    onBlur: onBlur,
+    onChange: e => {
+      setScore(e.target.value);
+      setDirty(true);
+    },
+    style: gi
+  }), React.createElement("span", {
+    style: {
+      color: "rgba(255,255,255,0.4)",
+      fontSize: 12
+    }
+  }, "/", MAX_SCORE), React.createElement("span", {
+    style: {
+      marginLeft: "auto",
+      fontSize: 11,
+      fontWeight: 700,
+      color: scoreMet ? "#22c55e" : "rgba(255,255,255,0.55)"
+    }
+  }, scoreMsg)));
+}
+function AttemptList({
+  student,
+  onUpdate
+}) {
+  const [open, setOpen] = useState(false);
+  const atts = [...student.attempts].sort((a, b) => sessionIndex(a.session) - sessionIndex(b.session));
+  return React.createElement("div", {
+    style: {
+      marginTop: 10
+    }
+  }, React.createElement("div", {
+    onClick: () => setOpen(o => !o),
+    style: {
+      cursor: "pointer",
+      fontSize: 11,
+      letterSpacing: 1,
+      textTransform: "uppercase",
+      color: "rgba(255,255,255,0.5)",
+      display: "flex",
+      alignItems: "center",
+      gap: 6
+    }
+  }, React.createElement("span", null, open ? "▾" : "▸"), " Attempts & rubric (", atts.length, ")"), open && React.createElement("div", {
+    style: {
+      marginTop: 8,
+      display: "flex",
+      flexDirection: "column",
+      gap: 8
+    }
+  }, atts.length === 0 && React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "rgba(255,255,255,0.3)"
+    }
+  }, "No attempts yet."), atts.map(a => React.createElement("div", {
+    key: a.id,
+    style: {
+      background: "rgba(0,0,0,0.25)",
+      borderRadius: 8,
+      padding: "8px 10px"
+    }
+  }, React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      marginBottom: 6
+    }
+  }, React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "rgba(255,255,255,0.55)"
+    }
+  }, a.session), React.createElement("span", {
+    style: {
+      fontSize: 13,
+      fontWeight: 800,
+      color: "#fff"
+    }
+  }, fmtTime(a.time)), a.isPB && React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "#ffd700"
+    }
+  }, "⭐ PB"), React.createElement("span", {
+    onClick: () => {
+      if (window.confirm("Delete this attempt?")) onUpdate(a, "__delete__", null);
+    },
+    title: "Delete",
+    style: {
+      marginLeft: "auto",
+      cursor: "pointer",
+      fontSize: 12,
+      color: "rgba(255,90,90,0.6)"
+    }
+  }, "✕")), React.createElement(RubricStrip, {
+    compact: true,
+    rubric: a.rubric,
+    onCycle: key => onUpdate(a, "rubric", cycleRubric(a.rubric, key))
+  }))), React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: "rgba(255,255,255,0.3)"
+    }
+  }, "Tap a rubric badge to set No → Sometimes → Yes.")));
+}
+function StudentCard({
+  student,
+  rank,
+  color,
+  onAddAttempt,
+  onSaveGoal,
+  onUpdate
+}) {
+  const best = getBest(student.attempts);
+  const topScore = getTopScore(student.attempts);
+  const perfectTop = topScore === MAX_SCORE;
+  const country = FLAG_COUNTRY[student.flag] || student.specialty;
+  const MEDAL = ["#ffd700", "#c0c0c0", "#cd7f32"];
+  const rankColor = MEDAL[rank - 1] || "rgba(255,255,255,0.15)";
+  return React.createElement("div", {
+    style: {
+      background: "rgba(7,24,16,0.78)",
+      border: `1px solid ${color}55`,
+      borderRadius: 16,
+      padding: "16px 16px 14px",
+      position: "relative",
+      backdropFilter: "blur(2px)"
+    }
+  }, React.createElement("div", {
+    style: {
+      position: "absolute",
+      top: 12,
+      right: 12,
+      width: 26,
+      height: 26,
+      borderRadius: "50%",
+      background: rankColor,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontWeight: 900,
+      fontSize: 12,
+      color: rank <= 3 ? "#0a0f1e" : "rgba(255,255,255,0.35)"
+    }
+  }, rank), React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      marginBottom: 12
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: 30
+    }
+  }, student.flag), React.createElement("div", {
+    style: {
+      minWidth: 0
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: 17,
+      fontWeight: 800,
+      color: "#fff",
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis"
+    }
+  }, student.name), React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: "rgba(255,255,255,0.45)",
+      textTransform: "uppercase",
+      letterSpacing: 1
+    }
+  }, country, " · ", student.specialty))), React.createElement(GoalPanel, {
+    student: student,
+    color: color,
+    best: best,
+    topScore: topScore,
+    onSave: g => onSaveGoal(student.name, g)
+  }), React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr 1fr",
+      gap: 8,
+      marginBottom: 10
+    }
+  }, [{
+    label: "Best",
+    value: fmtTime(best),
+    c: color
+  }, {
+    label: "Top",
+    value: topScore !== null ? `${topScore}/${MAX_SCORE}${perfectTop ? " 🏆" : ""}` : "—",
+    c: perfectTop ? "#22c55e" : "#fff"
+  }, {
+    label: "PBs",
+    value: `${student.attempts.filter(a => a.isPB).length}`,
+    c: "#ffd700"
+  }].map(s => React.createElement("div", {
+    key: s.label,
+    style: {
+      background: "rgba(0,0,0,0.25)",
+      borderRadius: 9,
+      padding: "8px 4px",
+      textAlign: "center"
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: 14,
+      fontWeight: 800,
+      color: s.c,
+      lineHeight: 1.1
+    }
+  }, s.value), React.createElement("div", {
+    style: {
+      fontSize: 9,
+      color: "rgba(255,255,255,0.35)",
+      marginTop: 3,
+      textTransform: "uppercase",
+      letterSpacing: 0.5
+    }
+  }, s.label)))), React.createElement("button", {
+    onClick: onAddAttempt,
+    style: {
+      width: "100%",
+      padding: "9px",
+      borderRadius: 9,
+      border: "none",
+      background: color,
+      color: "#04210f",
+      cursor: "pointer",
+      fontSize: 13,
+      fontWeight: 800
+    }
+  }, "+ Add Attempt"), React.createElement(AttemptList, {
+    student: student,
+    onUpdate: onUpdate
+  }));
+}
+function ScatterPlot({
+  students,
+  colorMap
+}) {
+  const [hovered, setHovered] = useState(null);
+  const allPoints = [];
+  students.forEach(student => {
+    const sorted = [...student.attempts].sort((a, b) => sessionIndex(a.session) - sessionIndex(b.session));
+    sorted.forEach(a => allPoints.push({
+      name: student.name,
+      flag: student.flag,
+      session: a.session,
+      xIndex: sessionIndex(a.session),
+      timeSecs: a.time,
+      timeMin: parseFloat((a.time / 60).toFixed(2)),
+      score: a.score,
+      isPB: a.isPB,
+      color: colorMap[student.name]
+    }));
+  });
+  if (allPoints.length === 0) return React.createElement("div", {
+    style: {
+      background: "rgba(7,24,16,0.72)",
+      border: "1px solid rgba(255,255,255,0.1)",
+      borderRadius: 16,
+      padding: "40px 16px",
+      textAlign: "center",
+      color: "rgba(255,255,255,0.35)",
+      fontSize: 14
+    }
+  }, "No attempts logged yet — add some from the Leaderboard or the timer.");
+  const usedSessions = [...new Set(allPoints.map(p => p.session))].sort((a, b) => sessionIndex(a) - sessionIndex(b));
+  const xMin = Math.min(...allPoints.map(p => p.xIndex)),
+    xMax = Math.max(...allPoints.map(p => p.xIndex));
+  const yMax = Math.max(5, Math.ceil(Math.max(...allPoints.map(p => p.timeMin)) / 5) * 5);
+  const W = 680,
+    H = 340,
+    PAD = {
+      top: 20,
+      right: 30,
+      bottom: 50,
+      left: 52
+    };
+  const plotW = W - PAD.left - PAD.right,
+    plotH = H - PAD.top - PAD.bottom,
+    xRange = xMax - xMin || 1;
+  const toX = xi => PAD.left + (xi - xMin) / xRange * plotW,
+    toY = mins => PAD.top + (1 - mins / yMax) * plotH;
+  const dotR = score => score !== null && score !== undefined ? 5 + score / 12 * 8 : 6;
+  const lines = students.map(s => ({
+    name: s.name,
+    color: colorMap[s.name],
+    pts: allPoints.filter(p => p.name === s.name).sort((a, b) => a.xIndex - b.xIndex)
+  }));
+  const yTicks = [];
+  for (let t = 0; t <= yMax; t += 5) yTicks.push(t);
+  return React.createElement("div", {
+    style: {
+      background: "rgba(7,24,16,0.72)",
+      border: "1px solid rgba(255,255,255,0.1)",
+      borderRadius: 16,
+      padding: "20px 16px 12px",
+      marginBottom: 20
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "#ffd700",
+      letterSpacing: 2,
+      textTransform: "uppercase",
+      marginBottom: 4,
+      fontWeight: 700
+    }
+  }, "📈 Progress Chart"), React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: "rgba(255,255,255,0.3)",
+      marginBottom: 16
+    }
+  }, "X = attempt order · Y = time (min) · dot size = score · ⭐ = personal best"), React.createElement("div", {
+    style: {
+      overflowX: "auto"
+    }
+  }, React.createElement("svg", {
+    width: W,
+    height: H,
+    style: {
+      display: "block",
+      margin: "0 auto"
+    }
+  }, yTicks.map(t => React.createElement("g", {
+    key: t
+  }, React.createElement("line", {
+    x1: PAD.left,
+    x2: PAD.left + plotW,
+    y1: toY(t),
+    y2: toY(t),
+    stroke: "rgba(255,255,255,0.07)",
+    strokeWidth: 1
+  }), React.createElement("text", {
+    x: PAD.left - 8,
+    y: toY(t) + 4,
+    textAnchor: "end",
+    fill: "rgba(255,255,255,0.35)",
+    fontSize: 10
+  }, t, "m"))), usedSessions.map(s => React.createElement("text", {
+    key: s,
+    x: toX(sessionIndex(s)),
+    y: H - PAD.bottom + 18,
+    textAnchor: "middle",
+    fill: "rgba(255,255,255,0.35)",
+    fontSize: 10
+  }, s.replace("Tues", "Tu").replace("Wed", "W").replace("Thurs", "Th").replace("Fri", "Fr").replace("Mon", "Mo"))), lines.map(({
+    name,
+    color,
+    pts
+  }) => pts.length > 1 && pts.map((p, i) => {
+    if (i === 0) return null;
+    const prev = pts[i - 1];
+    return React.createElement("line", {
+      key: `${name}-${i}`,
+      x1: toX(prev.xIndex),
+      y1: toY(prev.timeMin),
+      x2: toX(p.xIndex),
+      y2: toY(p.timeMin),
+      stroke: color,
+      strokeWidth: 1.5,
+      strokeOpacity: 0.4,
+      strokeDasharray: "4 3"
+    });
+  })), allPoints.map((p, i) => {
+    const cx = toX(p.xIndex),
+      cy = toY(p.timeMin),
+      r = dotR(p.score),
+      isHov = hovered === `${p.name}-${i}`;
+    return React.createElement("g", {
+      key: i,
+      onMouseEnter: () => setHovered(`${p.name}-${i}`),
+      onMouseLeave: () => setHovered(null)
+    }, p.isPB && React.createElement("circle", {
+      cx: cx,
+      cy: cy,
+      r: r + 6,
+      fill: "none",
+      stroke: p.color,
+      strokeWidth: 1.5,
+      strokeOpacity: 0.4
+    }), React.createElement("circle", {
+      cx: cx,
+      cy: cy,
+      r: r,
+      fill: p.isPB ? p.color : "rgba(255,255,255,0.15)",
+      stroke: p.color,
+      strokeWidth: p.isPB ? 0 : 1.5,
+      opacity: isHov ? 1 : 0.85
+    }), p.isPB && React.createElement("text", {
+      x: cx,
+      y: cy - r - 5,
+      textAnchor: "middle",
+      fontSize: 10
+    }, "⭐"), isHov && React.createElement("g", null, React.createElement("rect", {
+      x: cx + 10,
+      y: cy - 36,
+      width: 140,
+      height: 40,
+      rx: 6,
+      fill: "#0d1b2a",
+      stroke: p.color,
+      strokeWidth: 1
+    }), React.createElement("text", {
+      x: cx + 80,
+      y: cy - 19,
+      textAnchor: "middle",
+      fill: "#fff",
+      fontSize: 11,
+      fontWeight: "bold"
+    }, p.flag, " ", p.name, " · ", p.session), React.createElement("text", {
+      x: cx + 80,
+      y: cy - 5,
+      textAnchor: "middle",
+      fill: "rgba(255,255,255,0.6)",
+      fontSize: 10
+    }, fmtTime(p.timeSecs), p.score !== null && p.score !== undefined ? ` · ${p.score}/12` : "", p.isPB ? " · PB ⭐" : "")));
+  }), React.createElement("line", {
+    x1: PAD.left,
+    x2: PAD.left,
+    y1: PAD.top,
+    y2: PAD.top + plotH,
+    stroke: "rgba(255,255,255,0.2)",
+    strokeWidth: 1
+  }), React.createElement("line", {
+    x1: PAD.left,
+    x2: PAD.left + plotW,
+    y1: PAD.top + plotH,
+    y2: PAD.top + plotH,
+    stroke: "rgba(255,255,255,0.2)",
+    strokeWidth: 1
+  }))), React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 14,
+      justifyContent: "center",
+      marginTop: 12
+    }
+  }, students.map(s => React.createElement("div", {
+    key: s.name,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6
+    }
+  }, React.createElement("div", {
+    style: {
+      width: 10,
+      height: 10,
+      borderRadius: "50%",
+      background: colorMap[s.name]
+    }
+  }), React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: "rgba(255,255,255,0.6)"
+    }
+  }, s.flag, " ", s.name)))));
+}
+function DataManager({
+  students,
+  colorMap,
+  onUpdate,
+  onAddAttempt
+}) {
+  const [editCell, setEditCell] = useState(null);
+  const [editVal, setEditVal] = useState("");
+  const startEdit = (attempt, field, cur) => {
+    setEditCell({
+      attempt,
+      field
+    });
+    setEditVal(String(cur ?? ""));
+  };
+  const commitEdit = () => {
+    if (!editCell) return;
+    onUpdate(editCell.attempt, editCell.field, editVal);
+    setEditCell(null);
+  };
+  const cellStyle = () => ({
+    padding: "8px 10px",
+    cursor: "pointer",
+    fontSize: 13,
+    color: "#fff",
+    borderRadius: 6,
+    minWidth: 54,
+    textAlign: "center"
+  });
+  const inp = {
+    background: "rgba(0,0,0,0.4)",
+    border: "1px solid #22c55e",
+    borderRadius: 6,
+    padding: "4px 8px",
+    color: "#fff",
+    fontSize: 13,
+    outline: "none",
+    width: "100%",
+    boxSizing: "border-box"
+  };
+  return React.createElement("div", null, React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "#ffd700",
+      letterSpacing: 2,
+      textTransform: "uppercase",
+      marginBottom: 4,
+      fontWeight: 700
+    }
+  }, "✏️ Data Manager"), React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: "rgba(255,255,255,0.3)",
+      marginBottom: 20
+    }
+  }, "Click time cells to edit · click a rubric badge to cycle No→Sometimes→Yes · score auto-totals to ", MAX_SCORE, " · changes save for everyone"), students.map(student => {
+    const color = colorMap[student.name];
+    return React.createElement("div", {
+      key: student.name,
+      style: {
+        marginBottom: 24,
+        background: "rgba(7,24,16,0.72)",
+        border: `1px solid ${color}33`,
+        borderRadius: 14,
+        overflow: "hidden"
+      }
+    }, React.createElement("div", {
+      style: {
+        padding: "12px 16px",
+        background: `${color}15`,
+        borderBottom: `1px solid ${color}22`,
+        display: "flex",
+        alignItems: "center",
+        gap: 10
+      }
+    }, React.createElement("span", {
+      style: {
+        fontSize: 20
+      }
+    }, student.flag), React.createElement("span", {
+      style: {
+        fontWeight: 800,
+        fontSize: 15,
+        color
+      }
+    }, student.name), React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.35)",
+        textTransform: "uppercase",
+        letterSpacing: 1
+      }
+    }, student.specialty)), React.createElement("div", {
+      style: {
+        overflowX: "auto"
+      }
+    }, React.createElement("table", {
+      style: {
+        width: "100%",
+        borderCollapse: "collapse"
+      }
+    }, React.createElement("thead", null, React.createElement("tr", {
+      style: {
+        borderBottom: "1px solid rgba(255,255,255,0.08)"
+      }
+    }, ["Session", "Mins", "Secs", "Rubric · Score", "⭐ True PB", ""].map(h => React.createElement("th", {
+      key: h,
+      style: {
+        padding: "8px 10px",
+        fontSize: 10,
+        fontWeight: 700,
+        letterSpacing: 1,
+        textTransform: "uppercase",
+        color: "rgba(255,255,255,0.35)",
+        textAlign: "center"
+      }
+    }, h)))), React.createElement("tbody", null, student.attempts.length === 0 && React.createElement("tr", null, React.createElement("td", {
+      colSpan: 6,
+      style: {
+        padding: "14px",
+        textAlign: "center",
+        fontSize: 12,
+        color: "rgba(255,255,255,0.25)"
+      }
+    }, "No attempts yet")), student.attempts.map(a => {
+      const isE = f => editCell?.attempt?.id === a.id && editCell?.field === f;
+      const tm = Math.floor(a.time / 60),
+        ts = a.time % 60;
+      return React.createElement("tr", {
+        key: a.id,
+        style: {
+          borderBottom: "1px solid rgba(255,255,255,0.05)",
+          background: a.isPB ? `${color}0d` : "transparent"
+        }
+      }, React.createElement("td", {
+        style: {
+          padding: "6px 8px"
+        }
+      }, isE("session") ? React.createElement("select", {
+        autoFocus: true,
+        value: editVal,
+        onChange: e => setEditVal(e.target.value),
+        onBlur: commitEdit,
+        style: {
+          ...inp,
+          appearance: "none"
+        }
+      }, DAY_OPTIONS.map(d => React.createElement("option", {
+        key: d,
+        value: d,
+        style: {
+          background: "#0d1b2a"
+        }
+      }, d))) : React.createElement("div", {
+        onClick: () => startEdit(a, "session", a.session),
+        style: {
+          ...cellStyle(),
+          color: a.isPB ? color : "#fff"
+        }
+      }, a.session)), React.createElement("td", {
+        style: {
+          padding: "6px 8px"
+        }
+      }, isE("mins") ? React.createElement("input", {
+        autoFocus: true,
+        type: "number",
+        min: "0",
+        value: editVal,
+        onChange: e => setEditVal(e.target.value),
+        onBlur: commitEdit,
+        onKeyDown: e => e.key === "Enter" && commitEdit(),
+        style: inp
+      }) : React.createElement("div", {
+        onClick: () => startEdit(a, "mins", tm),
+        style: cellStyle()
+      }, tm)), React.createElement("td", {
+        style: {
+          padding: "6px 8px"
+        }
+      }, isE("secs") ? React.createElement("input", {
+        autoFocus: true,
+        type: "number",
+        min: "0",
+        max: "59",
+        value: editVal,
+        onChange: e => setEditVal(e.target.value),
+        onBlur: commitEdit,
+        onKeyDown: e => e.key === "Enter" && commitEdit(),
+        style: inp
+      }) : React.createElement("div", {
+        onClick: () => startEdit(a, "secs", ts),
+        style: cellStyle()
+      }, String(ts).padStart(2, "0"))), React.createElement("td", {
+        style: {
+          padding: "6px 8px"
+        }
+      }, React.createElement(RubricStrip, {
+        rubric: a.rubric,
+        onCycle: key => onUpdate(a, "rubric", cycleRubric(a.rubric, key))
+      })), React.createElement("td", {
+        style: {
+          padding: "6px 8px",
+          textAlign: "center"
+        }
+      }, React.createElement("div", {
+        onClick: () => onUpdate(a, "isPB", !a.isPB),
+        style: {
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 22,
+          height: 22,
+          borderRadius: 5,
+          cursor: "pointer",
+          border: `2px solid ${a.isPB ? "#ffd700" : "rgba(255,255,255,0.2)"}`,
+          background: a.isPB ? "#ffd700" : "transparent"
+        }
+      }, a.isPB && React.createElement("span", {
+        style: {
+          fontSize: 13,
+          color: "#0a0f1e",
+          fontWeight: 900,
+          lineHeight: 1
+        }
+      }, "✓"))), React.createElement("td", {
+        style: {
+          padding: "6px 8px",
+          textAlign: "center"
+        }
+      }, React.createElement("div", {
+        onClick: () => {
+          if (window.confirm("Delete this attempt?")) onUpdate(a, "__delete__", null);
+        },
+        style: {
+          cursor: "pointer",
+          fontSize: 14,
+          color: "rgba(255,80,80,0.5)",
+          padding: "2px 6px",
+          borderRadius: 4,
+          display: "inline-block"
+        },
+        title: "Delete attempt"
+      }, "✕")));
+    })))), React.createElement("div", {
+      style: {
+        padding: "10px 16px",
+        borderTop: "1px solid rgba(255,255,255,0.06)",
+        display: "flex",
+        gap: 24,
+        flexWrap: "wrap"
+      }
+    }, React.createElement("span", {
+      style: {
+        fontSize: 12,
+        color: "rgba(255,255,255,0.4)"
+      }
+    }, "Best: ", React.createElement("strong", {
+      style: {
+        color
+      }
+    }, fmtTime(getBest(student.attempts)))), React.createElement("span", {
+      style: {
+        fontSize: 12,
+        color: "rgba(255,255,255,0.4)"
+      }
+    }, "Top: ", React.createElement("strong", {
+      style: {
+        color: "#fff"
+      }
+    }, getTopScore(student.attempts) ?? '—', "/", MAX_SCORE)), React.createElement("span", {
+      style: {
+        fontSize: 12,
+        color: "rgba(255,255,255,0.4)"
+      }
+    }, "Attempts: ", React.createElement("strong", {
+      style: {
+        color: "#fff"
+      }
+    }, student.attempts.length)), React.createElement("button", {
+      onClick: () => onAddAttempt(student.name),
+      style: {
+        marginLeft: "auto",
+        padding: "5px 14px",
+        borderRadius: 8,
+        border: `1px dashed ${color}66`,
+        background: "transparent",
+        color: `${color}cc`,
+        cursor: "pointer",
+        fontSize: 12,
+        fontWeight: 600
+      }
+    }, "+ Add Attempt")));
+  }));
+}
+function App() {
+  const [students, setStudents] = useState([]);
+  const [modal, setModal] = useState(null);
+  const [tab, setTab] = useState("board");
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const interactingRef = useRef(false);
+  const colorMap = {};
+  students.forEach((s, i) => {
+    colorMap[s.name] = colorFor(s.name, i);
+  });
+  const fetchAll = useCallback(async () => {
+    try {
+      const [{
+        data: studs,
+        error: e1
+      }, {
+        data: atts,
+        error: e2
+      }] = await Promise.all([db.from("so_students").select("*").order("sort_order"), db.from("so_attempts").select("*").order("created_at")]);
+      if (e1) throw e1;
+      if (e2) throw e2;
+      const merged = studs.map(s => ({
+        name: s.name,
+        flag: s.flag,
+        specialty: s.specialty,
+        goalTime: s.goal_time_secs,
+        goalScore: s.goal_score,
+        attempts: atts.filter(a => a.student_name === s.name).map(a => ({
+          id: a.id,
+          session: a.session,
+          time: a.time_secs,
+          score: a.score,
+          isPB: a.is_pb,
+          rubric: a.rubric
+        }))
+      }));
+      setStudents(merged);
+      setError(null);
+    } catch (err) {
+      setError(err.message || String(err));
+    } finally {
+      setLoaded(true);
+    }
+  }, []);
+  useEffect(() => {
+    fetchAll();
+  }, [fetchAll]);
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!interactingRef.current && !modal && !saving) fetchAll();
+    }, 10000);
+    return () => clearInterval(id);
+  }, [fetchAll, modal, saving]);
+  const saveAttempt = async (name, attempt) => {
+    setSaving(true);
+    const {
+      error
+    } = await db.from("so_attempts").insert({
+      student_name: name,
+      session: attempt.session,
+      time_secs: attempt.time,
+      score: attempt.score,
+      is_pb: attempt.isPB,
+      rubric: attempt.rubric || null
+    });
+    setSaving(false);
+    if (error) {
+      alert("Could not save: " + error.message);
+      return;
+    }
+    setModal(null);
+    fetchAll();
+  };
+  const updateAttempt = async (attempt, field, value) => {
+    if (field === "__delete__") {
+      await db.from("so_attempts").delete().eq("id", attempt.id);
+    } else {
+      const patch = {};
+      if (field === "session") patch.session = value;else if (field === "isPB") patch.is_pb = value;else if (field === "rubric") {
+        patch.rubric = value;
+        patch.score = rubricScore(value);
+      } else if (field === "mins") patch.time_secs = (parseInt(value) || 0) * 60 + attempt.time % 60;else if (field === "secs") patch.time_secs = Math.floor(attempt.time / 60) * 60 + (parseInt(value) || 0);
+      await db.from("so_attempts").update(patch).eq("id", attempt.id);
+    }
+    fetchAll();
+  };
+  const saveGoal = async (name, g) => {
+    await db.from("so_students").update({
+      goal_time_secs: g.timeSecs,
+      goal_score: g.score
+    }).eq("name", name);
+    fetchAll();
+  };
+  if (!loaded) return React.createElement("div", {
+    style: {
+      minHeight: "100vh",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      color: "rgba(255,255,255,0.6)",
+      fontSize: 14
+    }
+  }, "Loading the tournament…");
+  const sorted = [...students].sort((a, b) => {
+    const ba = getBest(a.attempts),
+      bb = getBest(b.attempts);
+    if (ba === null && bb === null) return 0;
+    if (ba === null) return 1;
+    if (bb === null) return -1;
+    return ba - bb;
+  });
+  const activeStudent = modal ? students.find(s => s.name === modal.name) : null;
+  const TABS = [{
+    key: "board",
+    label: "🏆 Leaderboard"
+  }, {
+    key: "chart",
+    label: "📈 Progress"
+  }, {
+    key: "data",
+    label: "✏️ Data"
+  }];
+  return React.createElement("div", {
+    style: {
+      minHeight: "100vh",
+      color: "#fff",
+      fontFamily: "'Segoe UI',system-ui,sans-serif",
+      paddingBottom: 60,
+      position: "relative",
+      zIndex: 1
+    }
+  }, React.createElement(PitchOverlay, null), modal && activeStudent && React.createElement(EntryModal, {
+    student: activeStudent,
+    prefill: modal.prefill,
+    busy: saving,
+    onSave: a => saveAttempt(modal.name, a),
+    onClose: () => setModal(null)
+  }), React.createElement(Bunting, null), React.createElement("div", {
+    style: {
+      textAlign: "center",
+      padding: "26px 20px 22px",
+      position: "relative",
+      zIndex: 1
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: 12,
+      letterSpacing: 4,
+      color: "#ffd700",
+      textTransform: "uppercase",
+      marginBottom: 6
+    }
+  }, "⚽ Alpha Summer · World Cup Edition"), React.createElement("div", {
+    style: {
+      fontSize: 40,
+      fontWeight: 900,
+      letterSpacing: -1,
+      lineHeight: 1.05,
+      color: "#fff",
+      textShadow: "0 2px 14px rgba(0,0,0,0.5)"
+    }
+  }, "🏆 SUTURE OLYMPICS"), React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: "rgba(255,255,255,0.7)",
+      marginTop: 8,
+      letterSpacing: 1
+    }
+  }, "CHAMPIONSHIP DAY · BEAT YOUR PERSONAL BEST"), React.createElement("div", {
+    style: {
+      display: "inline-block",
+      marginTop: 12,
+      padding: "5px 16px",
+      background: "rgba(255,215,0,0.15)",
+      border: "1px solid rgba(255,215,0,0.4)",
+      borderRadius: 20,
+      fontSize: 12,
+      color: "#ffd700",
+      fontWeight: 700
+    }
+  }, "You Versus You · live for everyone")), error && React.createElement("div", {
+    style: {
+      maxWidth: 1080,
+      margin: "0 auto 12px",
+      padding: "10px 16px",
+      background: "rgba(255,80,80,0.12)",
+      border: "1px solid rgba(255,80,80,0.3)",
+      borderRadius: 10,
+      color: "#ff9e9e",
+      fontSize: 13
+    }
+  }, "Connection issue: ", error, ". Showing last known data — changes may not be saving."), React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "center",
+      gap: 8,
+      padding: "0 16px 4px",
+      flexWrap: "wrap"
+    }
+  }, TABS.map(t => React.createElement("button", {
+    key: t.key,
+    onClick: () => setTab(t.key),
+    style: {
+      padding: "9px 20px",
+      borderRadius: 10,
+      cursor: "pointer",
+      fontWeight: tab === t.key ? 700 : 400,
+      fontSize: 13,
+      border: tab === t.key ? "1px solid #ffd700" : "1px solid rgba(255,255,255,0.15)",
+      background: tab === t.key ? "rgba(255,215,0,0.15)" : "rgba(7,24,16,0.6)",
+      color: tab === t.key ? "#ffd700" : "rgba(255,255,255,0.6)"
+    }
+  }, t.label))), React.createElement("div", {
+    style: {
+      maxWidth: 1080,
+      margin: "20px auto 0",
+      padding: "0 16px"
+    }
+  }, tab === "board" && React.createElement(React.Fragment, null, React.createElement(Dashboard, {
+    students: students,
+    colorMap: colorMap
+  }), React.createElement(TimerSection, {
+    students: sorted,
+    onLog: (name, secs) => setModal({
+      name,
+      prefill: {
+        mins: Math.floor(secs / 60),
+        secs: secs % 60
+      }
+    })
+  }), React.createElement("div", {
+    className: "student-grid",
+    onMouseDown: () => {
+      interactingRef.current = true;
+    },
+    onMouseLeave: () => {
+      interactingRef.current = false;
+    }
+  }, sorted.map((s, i) => React.createElement(StudentCard, {
+    key: s.name,
+    student: s,
+    rank: i + 1,
+    color: colorMap[s.name],
+    onSaveGoal: saveGoal,
+    onUpdate: updateAttempt,
+    onAddAttempt: () => setModal({
+      name: s.name
+    })
+  })))), tab === "chart" && React.createElement(ScatterPlot, {
+    students: students,
+    colorMap: colorMap
+  }), tab === "data" && React.createElement("div", {
+    onMouseDown: () => {
+      interactingRef.current = true;
+    },
+    onMouseLeave: () => {
+      interactingRef.current = false;
+    }
+  }, React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "flex-end",
+      marginBottom: 14
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "#22c55e"
+    }
+  }, "✓ Changes save live for everyone")), React.createElement(DataManager, {
+    students: students,
+    colorMap: colorMap,
+    onUpdate: updateAttempt,
+    onAddAttempt: name => setModal({
+      name
+    })
+  }))), React.createElement("div", {
+    style: {
+      textAlign: "center",
+      marginTop: 40,
+      fontSize: 11,
+      color: "rgba(255,255,255,0.35)",
+      position: "relative",
+      zIndex: 1
+    }
+  }, "Live shared leaderboard · data refreshes automatically"));
+}
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App, null));
+</script>
+</body>
+</html>
