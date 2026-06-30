@@ -926,16 +926,14 @@ function GoalPanel({
   const [mins, setMins] = useState(propTimeM);
   const [secs, setSecs] = useState(propTimeS);
   const [score, setScore] = useState(propScore);
-  const [focused, setFocused] = useState(false);
   const [dirty, setDirty] = useState(false);
   useEffect(() => {
-    if (!focused) {
+    if (!dirty) {
       setMins(propTimeM);
       setSecs(propTimeS);
       setScore(propScore);
-      setDirty(false);
     }
-  }, [student.goalTime, student.goalScore, focused]);
+  }, [student.goalTime, student.goalScore]);
   const goalTime = mins !== "" || secs !== "" ? (parseInt(mins) || 0) * 60 + (parseInt(secs) || 0) : null;
   const goalScore = score !== "" ? Number(score) : null;
   const timeMet = best != null && goalTime != null && best <= goalTime;
@@ -954,15 +952,12 @@ function GoalPanel({
     textAlign: "center",
     boxSizing: "border-box"
   };
-  const onFocus = () => setFocused(true);
-  const onBlur = () => setFocused(false);
   const save = () => {
     onSave({
       timeSecs: goalTime,
       score: goalScore
     });
     setDirty(false);
-    setFocused(false);
   };
   return React.createElement("div", {
     style: {
@@ -1016,8 +1011,6 @@ function GoalPanel({
     min: "0",
     placeholder: "m",
     value: mins,
-    onFocus: onFocus,
-    onBlur: onBlur,
     onChange: e => {
       setMins(e.target.value);
       setDirty(true);
@@ -1034,8 +1027,6 @@ function GoalPanel({
     max: "59",
     placeholder: "s",
     value: secs,
-    onFocus: onFocus,
-    onBlur: onBlur,
     onChange: e => {
       setSecs(e.target.value);
       setDirty(true);
@@ -1066,8 +1057,6 @@ function GoalPanel({
     max: MAX_SCORE,
     placeholder: "#",
     value: score,
-    onFocus: onFocus,
-    onBlur: onBlur,
     onChange: e => {
       setScore(e.target.value);
       setDirty(true);
@@ -1151,18 +1140,22 @@ function AttemptList({
       fontSize: 11,
       color: "#ffd700"
     }
-  }, "⭐ PB"), React.createElement("span", {
+  }, "⭐ PB"), React.createElement("button", {
     onClick: () => {
-      if (window.confirm("Delete this attempt?")) onUpdate(a, "__delete__", null);
+      if (window.confirm("Delete this attempt? This cannot be undone.")) onUpdate(a, "__delete__", null);
     },
-    title: "Delete",
     style: {
       marginLeft: "auto",
       cursor: "pointer",
-      fontSize: 12,
-      color: "rgba(255,90,90,0.6)"
+      fontSize: 10,
+      fontWeight: 700,
+      padding: "2px 8px",
+      borderRadius: 5,
+      border: "1px solid rgba(255,90,90,0.45)",
+      background: "rgba(255,90,90,0.14)",
+      color: "#ff8a8a"
     }
-  }, "✕")), React.createElement(RubricStrip, {
+  }, "🗑 Delete")), React.createElement(RubricStrip, {
     compact: true,
     rubric: a.rubric,
     onCycle: key => onUpdate(a, "rubric", cycleRubric(a.rubric, key))
