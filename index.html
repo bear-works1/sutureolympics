@@ -749,79 +749,105 @@ function EntryModal({
     }
   }, React.createElement("div", {
     style: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "baseline",
-      marginBottom: 8
-    }
-  }, React.createElement("div", {
-    style: {
       fontSize: 11,
       color: "rgba(255,255,255,0.4)",
       letterSpacing: 1,
-      textTransform: "uppercase"
+      textTransform: "uppercase",
+      marginBottom: 2
     }
-  }, "Scoring Rubric"), React.createElement("div", {
+  }, "Score this attempt"), React.createElement("div", {
     style: {
-      fontSize: 13,
-      fontWeight: 800,
-      color: perfect ? "#22c55e" : "#fff"
+      fontSize: 11,
+      color: "rgba(255,255,255,0.4)",
+      marginBottom: 10
     }
-  }, total, "/", MAX_SCORE)), CATEGORIES.map(c => React.createElement("div", {
-    key: c.key,
+  }, "Tap how each item went — your points add up automatically."), React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
-      justifyContent: "space-between",
+      justifyContent: "center",
       gap: 8,
-      marginBottom: 7
+      marginBottom: 12,
+      padding: "10px",
+      borderRadius: 10,
+      background: perfect ? "rgba(34,197,94,0.15)" : "rgba(255,215,0,0.10)",
+      border: `1px solid ${perfect ? "rgba(34,197,94,0.45)" : "rgba(255,215,0,0.35)"}`
     }
   }, React.createElement("span", {
     style: {
-      fontSize: 12,
-      color: "rgba(255,255,255,0.75)",
-      flex: 1
+      fontSize: 28,
+      fontWeight: 900,
+      color: perfect ? "#22c55e" : "#ffd700",
+      lineHeight: 1
     }
-  }, c.label), React.createElement("div", {
+  }, total), React.createElement("span", {
     style: {
-      display: "flex",
-      gap: 4
-    }
-  }, [0, 1, 2].map(v => {
-    const active = rubric[c.key] === v;
-    return React.createElement("button", {
-      key: v,
-      type: "button",
-      onClick: () => setRubric(r => ({
-        ...r,
-        [c.key]: v
-      })),
-      title: `${RATING_LABELS[v]} (${v} pt${v === 1 ? "" : "s"})`,
-      style: {
-        padding: "4px 8px",
-        borderRadius: 6,
-        cursor: "pointer",
-        fontSize: 11,
-        fontWeight: 700,
-        border: `1px solid ${active ? RATING_COLORS[v] : "rgba(255,255,255,0.15)"}`,
-        background: active ? RATING_COLORS[v] : "rgba(255,255,255,0.05)",
-        color: active ? "#0a0f1e" : "rgba(255,255,255,0.5)",
-        minWidth: 34
-      }
-    }, RATING_LABELS[v]);
-  })))), perfect && React.createElement("div", {
-    style: {
-      marginTop: 10,
-      padding: "7px 12px",
-      borderRadius: 8,
-      background: "rgba(34,197,94,0.14)",
-      border: "1px solid rgba(34,197,94,0.4)",
-      color: "#22c55e",
-      fontSize: 12,
+      fontSize: 15,
       fontWeight: 700,
+      color: "rgba(255,255,255,0.55)"
+    }
+  }, "/ ", MAX_SCORE, " points"), perfect && React.createElement("span", {
+    style: {
+      fontSize: 18
+    }
+  }, "🏆")), CATEGORIES.map(c => {
+    const cur = rubric[c.key];
+    return React.createElement("div", {
+      key: c.key,
+      style: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 8,
+        marginBottom: 7
+      }
+    }, React.createElement("span", {
+      style: {
+        fontSize: 12,
+        color: "rgba(255,255,255,0.78)",
+        flex: 1
+      }
+    }, c.label, " ", React.createElement("span", {
+      style: {
+        color: RATING_COLORS[cur],
+        fontWeight: 800
+      }
+    }, "+", cur)), React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 4
+      }
+    }, [0, 1, 2].map(v => {
+      const active = cur === v;
+      return React.createElement("button", {
+        key: v,
+        type: "button",
+        onClick: () => setRubric(r => ({
+          ...r,
+          [c.key]: v
+        })),
+        title: `${RATING_LABELS[v]} = ${v} pt${v === 1 ? "" : "s"}`,
+        style: {
+          padding: "4px 8px",
+          borderRadius: 6,
+          cursor: "pointer",
+          fontSize: 11,
+          fontWeight: 700,
+          border: `1px solid ${active ? RATING_COLORS[v] : "rgba(255,255,255,0.15)"}`,
+          background: active ? RATING_COLORS[v] : "rgba(255,255,255,0.05)",
+          color: active ? "#0a0f1e" : "rgba(255,255,255,0.5)",
+          minWidth: 34
+        }
+      }, RATING_LABELS[v]);
+    })));
+  }), React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: "rgba(255,255,255,0.35)",
+      marginTop: 6,
       textAlign: "center"
     }
-  }, "🏆 All criteria met — perfect ", MAX_SCORE, "/", MAX_SCORE, "!")), React.createElement("div", {
+  }, "Yes = 2 pts · Sometimes = 1 pt · No = 0 pts")), React.createElement("div", {
     style: {
       marginBottom: 20,
       display: "flex",
