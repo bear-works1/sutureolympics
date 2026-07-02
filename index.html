@@ -70,6 +70,18 @@ function defaultDay(attempts) {
   const m = String(latest.session).match(/^([A-Za-z]+)/);
   return m && DAY_ORDER[m[1]] != null ? m[1] : "Mon";
 }
+const WEEKDAY_TO_DAY = {
+  1: "Mon",
+  2: "Tues",
+  3: "Wed",
+  4: "Thurs",
+  5: "Fri"
+};
+function todayDay(attempts) {
+  const label = WEEKDAY_TO_DAY[new Date().getDay()];
+  if (label && DAY_ORDER[label] != null) return label;
+  return defaultDay(attempts);
+}
 const STUDENT_COLORS = {
   "Benji M.": "#3b82f6",
   "Bennett L.": "#ef4444",
@@ -120,7 +132,7 @@ function teamRows(students) {
       best: getBest(m.attempts)
     }));
     const counted = members.filter(m => m.best != null);
-    const combined = counted.reduce((sum, m) => sum + m.best, 0);
+    const combined = counted.length ? counted.reduce((sum, m) => sum + m.best, 0) / counted.length : 0;
     return {
       team: t,
       members,
@@ -469,7 +481,7 @@ function CountryTeams({
       color: "rgba(255,255,255,0.45)",
       marginTop: 2
     }
-  }, "Each teammate's personal best is added together — every PB you beat lowers your country's combined time.")), React.createElement("div", {
+  }, "Each team's score is the average of its players' personal bests — every PB you beat lowers your country's average time.")), React.createElement("div", {
     style: {
       display: "flex",
       flexDirection: "column"
@@ -554,7 +566,7 @@ function CountryTeams({
         color: "rgba(255,255,255,0.4)",
         marginTop: 3
       }
-    }, "combined ", complete ? "" : `(${r.countedN}/${r.total})`)));
+    }, "average ", complete ? "" : `(${r.countedN}/${r.total})`)));
   })));
 }
 function TimerSection({
@@ -676,8 +688,6 @@ function EntryModal({
   onClose,
   busy
 }) {
-  const [day, setDay] = useState(() => defaultDay(student.attempts));
-  const [num, setNum] = useState(() => nextAttemptNumber(student.attempts, defaultDay(student.attempts)));
   const [mins, setMins] = useState(prefill?.mins != null ? String(prefill.mins) : "");
   const [secs, setSecs] = useState(prefill?.secs != null ? String(prefill.secs) : "");
   const [rubric, setRubric] = useState(emptyRubric());
@@ -685,11 +695,10 @@ function EntryModal({
   const [confirming, setConfirming] = useState(false);
   const total = rubricScore(rubric);
   const perfect = total === MAX_SCORE;
+  const day = todayDay(student.attempts);
+  const num = nextAttemptNumber(student.attempts, day);
   const sessionLabel = `${day} #${num}`;
   const totalSecs = (parseInt(mins) || 0) * 60 + (parseInt(secs) || 0);
-  useEffect(() => {
-    setNum(nextAttemptNumber(student.attempts, day));
-  }, [day]);
   const handle = () => {
     if (!totalSecs) return;
     setConfirming(true);
@@ -844,55 +853,30 @@ function EntryModal({
   }, "Day / Attempt"), React.createElement("div", {
     style: {
       display: "flex",
-      gap: 8,
-      alignItems: "center"
-    }
-  }, React.createElement("select", {
-    value: day,
-    onChange: e => setDay(e.target.value),
-    style: {
-      ...inp,
-      appearance: "none",
-      flex: 1
-    }
-  }, DAYS.map(d => React.createElement("option", {
-    key: d,
-    value: d,
-    style: {
-      background: "#0d1b2a"
-    }
-  }, d))), React.createElement("div", {
-    style: {
-      display: "flex",
       alignItems: "center",
-      gap: 4
+      gap: 8,
+      padding: "9px 12px",
+      borderRadius: 8,
+      background: "rgba(255,215,0,0.08)",
+      border: "1px solid rgba(255,215,0,0.3)"
     }
   }, React.createElement("span", {
     style: {
-      color: "rgba(255,255,255,0.5)",
-      fontWeight: 700
+      fontSize: 16
     }
-  }, "#"), React.createElement("input", {
-    type: "number",
-    min: "1",
-    value: num,
-    onChange: e => setNum(Math.max(1, parseInt(e.target.value) || 1)),
+  }, "📅"), React.createElement("span", {
     style: {
-      ...inp,
-      width: 60,
-      textAlign: "center"
-    }
-  }))), React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: "rgba(255,255,255,0.45)",
-      marginTop: 6
-    }
-  }, "Logs as ", React.createElement("strong", {
-    style: {
+      fontSize: 16,
+      fontWeight: 800,
       color: "#ffd700"
     }
-  }, sessionLabel), " — auto-numbered to your next attempt (adjust # if needed).")), React.createElement("div", {
+  }, sessionLabel), React.createElement("span", {
+    style: {
+      marginLeft: "auto",
+      fontSize: 11,
+      color: "rgba(255,255,255,0.45)"
+    }
+  }, "set automatically"))), React.createElement("div", {
     style: {
       marginBottom: 16
     }
